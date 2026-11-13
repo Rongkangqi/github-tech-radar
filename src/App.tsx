@@ -1,87 +1,165 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUpRight, Bookmark, Check, ChevronRight, Code2, Compass, ExternalLink, GitFork, GitBranch as Github, Info, Layers3, LayoutDashboard, LoaderCircle, Radio, RefreshCw, Search, Sparkles, Star, Telescope, X } from "lucide-react";
-import { DIRECTIONS, fmt, type RadarData, type Repo } from "../lib/radar";
-type View = "overview" | "new" | "saved";
-const colors: Record<string, string> = { Python: "#d4b56c", TypeScript: "#7e9db9", JavaScript: "#d4c357", Rust: "#bf8e79", Go: "#87b7b9", Java: "#bd8d64", "C++": "#b397c0", C: "#969cb3", Shell: "#9eaf86", Swift: "#dc956e" };
-function dateText(value: string) { return new Date(value).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }); }
-function ago(value: string) { const n = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000)); return n === 0 ? "今天有提交" : `${n} 天前提交`; }
-export default function Home() {
-  const [data, setData] = useState<RadarData | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState("");
-  const [days, setDays] = useState(30), [view, setView] = useState<View>("overview"), [direction, setDirection] = useState("all"), [language, setLanguage] = useState("all"), [query, setQuery] = useState(""), [sort, setSort] = useState("discover"), [limit, setLimit] = useState(12);
-  const [saved, setSaved] = useState<Record<string, Repo>>({}), [ready, setReady] = useState(false), [storageError, setStorageError] = useState("");
-  const [selected, setSelected] = useState<Repo | null>(null), [guide, setGuide] = useState(false), [hint, setHint] = useState("");
-  const dialog = useRef<HTMLDialogElement>(null), seq = useRef(0);
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowRight, ArrowUpRight, Bookmark, Check, Code2, Cpu, Database, GitBranch, Info, LayoutTemplate, LoaderCircle, Menu, Orbit, Radio, RefreshCw, Search, ShieldCheck, Star, Terminal, X } from 'lucide-react';
+import { DIRECTIONS, fmt, type RadarData, type Repo } from '../lib/radar';
+import RadarScene from './components/RadarScene';
+import ProjectDialog from './components/ProjectDialog';
+
+type View = 'overview' | 'new' | 'saved';
+const languageColors: Record<string, string> = { Python: '#c49b32', TypeScript: '#3178c6', JavaScript: '#c2a900', Rust: '#b46d48', Go: '#27a6b7', Java: '#ad7544', 'C++': '#886ab5', C: '#6d79a1', Shell: '#6a8d49', Swift: '#db7351' };
+const directionIcons = [Cpu, LayoutTemplate, Terminal, Database, ShieldCheck, Orbit];
+const viewNames: Record<View, string> = { overview: '全部项目', new: '新项目雷达', saved: '我的观察清单' };
+const dateText = (value: string) => new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+function ago(value: string) { const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000)); return days === 0 ? '今天有提交' : `${days} 天前提交`; }
+
+export default function App() {
+  const [data, setData] = useState<RadarData | null>(null);
+  const [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const [days, setDays] = useState(30), [view, setView] = useState<View>('overview');
+  const [direction, setDirection] = useState('all'), [language, setLanguage] = useState('all');
+  const [query, setQuery] = useState(''), [sort, setSort] = useState('discover'), [limit, setLimit] = useState(12);
+  const [saved, setSaved] = useState<Record<string, Repo>>({}), [ready, setReady] = useState(false);
+  const [storageError, setStorageError] = useState(''), [selected, setSelected] = useState<Repo | null>(null);
+  const [guide, setGuide] = useState(false), [hint, setHint] = useState(''), [menuOpen, setMenuOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null), seq = useRef(0), searchInput = useRef<HTMLInputElement>(null);
+
   const load = useCallback(async (manual = false) => {
-    const id = ++seq.current; setLoading(true); setError("");
+    const id = ++seq.current;
+    setLoading(true); setError('');
     try {
-      const response = await fetch(`${import.meta.env.BASE_URL}data/radar-${days}.json?t=${Math.floor(Date.now() / 60000)}`, { cache: "no-store", signal: AbortSignal.timeout(20000) });
-      if (!response.ok) throw new Error("暂时无法读取数据，请稍后再试。");
+      const response = await fetch(`${import.meta.env.BASE_URL}data/radar-${days}.json?t=${Math.floor(Date.now() / 60000)}`, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+      if (!response.ok) throw new Error('暂时无法读取数据，请稍后再试。');
       const json = await response.json() as RadarData;
-      if (!Array.isArray(json.repos) || json.days !== days || !Number.isFinite(Date.parse(json.syncedAt))) throw new Error("数据文件暂不可用，请稍后再试。");
-      if (Date.now() - Date.parse(json.syncedAt) > 3 * 3600000) { json.stale = true; json.notice ||= "距离上次采集已超过 3 小时，当前展示上次成功的数据。"; }
-      if (id !== seq.current) return; setData(json);
-      if (manual) { setHint(json.stale ? "当前显示上次成功采集的数据。" : "已检查最新数据 · 计划每小时采集"); setTimeout(() => setHint(""), 5000); }
-    }
-    catch (e) { if (id === seq.current) setError(e instanceof Error ? e.message : "网络连接暂不可用。"); }
+      if (!Array.isArray(json.repos) || json.days !== days || !Number.isFinite(Date.parse(json.syncedAt))) throw new Error('数据文件暂不可用，请稍后再试。');
+      if (Date.now() - Date.parse(json.syncedAt) > 3 * 3600000) { json.stale = true; json.notice ||= '距离上次采集已超过 3 小时，当前展示上次成功的数据。'; }
+      if (id !== seq.current) return;
+      setData(json);
+      if (manual) { setHint(json.stale ? '当前显示上次成功采集的数据。' : '已检查最新数据 · 计划每小时采集'); setTimeout(() => setHint(''), 5000); }
+    } catch (e) { if (id === seq.current) setError(e instanceof Error ? e.message : '网络连接暂不可用。'); }
     finally { if (id === seq.current) setLoading(false); }
   }, [days]);
+
   useEffect(() => { setData(null); void load(); const timer = setInterval(() => void load(), 3600000); return () => { clearInterval(timer); seq.current++; }; }, [load]);
-  useEffect(() => { try { const value = JSON.parse(localStorage.getItem("github-radar-saved-v1") || "{}"); if (value && typeof value === "object" && !Array.isArray(value)) setSaved(Object.fromEntries(Object.entries(value).filter(([, r]) => r && typeof r === "object" && typeof (r as Repo).fullName === "string" && typeof (r as Repo).id === "number" && Array.isArray((r as Repo).topics) && typeof (r as Repo).stars === "number" && typeof (r as Repo).createdAt === "string" && typeof (r as Repo).pushedAt === "string" && typeof (r as Repo).description === "string" && /^https:\/\/github\.com\//.test((r as Repo).url))) as Record<string, Repo>); } catch { setStorageError("浏览器暂时无法读取观察清单。"); } setReady(true); }, []);
-  useEffect(() => { if (ready) try { localStorage.setItem("github-radar-saved-v1", JSON.stringify(saved)); } catch { setStorageError("浏览器未能保存清单，当前选择仅在本次浏览中保留。"); } }, [saved, ready]);
+  useEffect(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem('github-radar-saved-v1') || '{}');
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        setSaved(Object.fromEntries(Object.entries(value).filter(([, value]) => {
+          const r = value as Repo | null;
+          return r && typeof r === 'object' && typeof r.fullName === 'string' && typeof r.id === 'number' && Array.isArray(r.topics) && typeof r.stars === 'number' && typeof r.createdAt === 'string' && typeof r.pushedAt === 'string' && typeof r.description === 'string' && /^https:\/\/github\.com\//.test(r.url);
+        })) as Record<string, Repo>);
+      }
+    } catch { setStorageError('浏览器暂时无法读取观察清单。'); }
+    setReady(true);
+  }, []);
+  useEffect(() => { if (ready) try { localStorage.setItem('github-radar-saved-v1', JSON.stringify(saved)); } catch { setStorageError('浏览器未能保存清单，当前选择仅在本次浏览中保留。'); } }, [saved, ready]);
   useEffect(() => { if ((selected || guide) && !dialog.current?.open) dialog.current?.showModal(); }, [selected, guide]);
   useEffect(() => { setLimit(12); }, [query, language, direction, view, days, sort]);
+
   const repos = data?.repos || [];
-  const directionStats = DIRECTIONS.map(d => ({ ...d, count: repos.filter(r => r.direction === d.id).length })).sort((a, b) => b.count - a.count);
-  const languages = Object.entries(repos.reduce<Record<string, number>>((a, r) => { if (r.language) a[r.language] = (a[r.language] || 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1]);
-  const top = directionStats[0], fresh = repos.filter(r => r.isNew).length;
-  const filtered = useMemo(() => { const current = new Map((data?.repos || []).map(r => [r.id, r])); let list = view === "saved" ? Object.values(saved).map(r => current.get(r.id) || r) : (data?.repos || []).filter(r => view !== "new" || r.isNew); const q = query.trim().toLowerCase(); list = list.filter(r => (direction === "all" || r.direction === direction) && (language === "all" || r.language === language) && (!q || `${r.fullName} ${r.description} ${r.topics.join(" ")} ${DIRECTIONS.find(d => d.id === r.direction)?.name}`.toLowerCase().includes(q))); return list.sort((a, b) => sort === "created" ? b.createdAt.localeCompare(a.createdAt) : sort === "updated" ? b.pushedAt.localeCompare(a.pushedAt) : sort === "discover" ? Number(b.isNew) - Number(a.isNew) || b.stars - a.stars : b.stars - a.stars); }, [data, saved, view, query, direction, language, sort]);
-  const toggleSaved = (r: Repo) => setSaved(prev => { const next = { ...prev }; if (next[r.id]) delete next[r.id]; else next[r.id] = r; return next; });
-  const chooseView = (v: View) => { setView(v); setDirection("all"); setLanguage("all"); setQuery(""); };
-  const closeDialog = () => { dialog.current?.close(); setSelected(null); setGuide(false); };
+  const directionStats = DIRECTIONS.map((d, index) => ({ ...d, icon: directionIcons[index], count: repos.filter(r => r.direction === d.id).length }));
+  const languages = Object.entries(repos.reduce<Record<string, number>>((counts, r) => { if (r.language) counts[r.language] = (counts[r.language] || 0) + 1; return counts; }, {})).sort((a, b) => b[1] - a[1]);
+  const fresh = repos.filter(r => r.isNew).length;
+  const languageTotal = repos.filter(r => r.language).length;
+  const filtered = useMemo(() => {
+    const current = new Map((data?.repos || []).map(r => [r.id, r]));
+    let list = view === 'saved' ? Object.values(saved).map(r => current.get(r.id) || r) : (data?.repos || []).filter(r => view !== 'new' || r.isNew);
+    const q = query.trim().toLowerCase();
+    list = list.filter(r => (direction === 'all' || r.direction === direction) && (language === 'all' || r.language === language) && (!q || `${r.fullName} ${r.description} ${r.topics.join(' ')} ${DIRECTIONS.find(d => d.id === r.direction)?.name}`.toLowerCase().includes(q)));
+    return list.sort((a, b) => sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : sort === 'updated' ? b.pushedAt.localeCompare(a.pushedAt) : sort === 'discover' ? Number(b.isNew) - Number(a.isNew) || b.stars - a.stars : b.stars - a.stars);
+  }, [data, saved, view, query, direction, language, sort]);
+  const languageOptions = [...new Set([...languages.map(l => l[0]), ...(view === 'saved' ? Object.values(saved).map(r => r.language).filter((l): l is string => !!l) : [])])];
+
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const chooseView = (next: View, target = 'projects') => { setView(next); setDirection('all'); setLanguage('all'); setQuery(''); setMenuOpen(false); scrollTo(target); };
+  const chooseDirection = (id: string) => { setDirection(id); setView('overview'); setLanguage('all'); setQuery(''); scrollTo('projects'); };
+  const toggleSaved = (repo: Repo) => setSaved(previous => { const next = { ...previous }; if (next[repo.id]) delete next[repo.id]; else next[repo.id] = repo; return next; });
+  const closeDialog = () => { if (dialog.current?.open) dialog.current.close(); setSelected(null); setGuide(false); };
   const empty = !loading && !data;
-  const nav = [{ id: "overview" as View, name: "发现概览", icon: LayoutDashboard }, { id: "new" as View, name: "新项目雷达", icon: Telescope }, { id: "saved" as View, name: "我的观察清单", icon: Bookmark }];
-  return <div className="app-shell">
-    <aside className="sidebar">
-      <a className="brand" href={import.meta.env.BASE_URL}><span className="brand-mark"><Radio size={23} /></span><span>GitHub <b>Radar</b><small>开源世界的技术风向</small></span></a>
-      <div className="nav-label">工作空间 <span>WORKSPACE</span></div>
-      <nav aria-label="主导航">{nav.map(n => <button key={n.id} className={`nav-item ${view === n.id ? "active" : ""}`} onClick={() => chooseView(n.id)}><n.icon size={18} />{n.name}{n.id === "new" ? <span className="nav-count">{data ? fresh : "—"}</span> : n.id === "saved" && Object.keys(saved).length > 0 ? <span className="nav-count">{Object.keys(saved).length}</span> : null}</button>)}</nav>
-      <div className="sidebar-rule" /><div className="nav-label">探索方向 <span>EXPLORE</span></div>
-      <nav aria-label="技术方向">{DIRECTIONS.map(d => <button key={d.id} className={`direction-nav ${direction === d.id ? "chosen" : ""}`} onClick={() => { setDirection(direction === d.id ? "all" : d.id); setView("overview"); }}><i style={{ background: d.color }} />{d.name}<ChevronRight size={13} /></button>)}</nav>
-      <div className="sidebar-bottom"><div className="small-radar"><Radio size={27} /></div><strong>保持好奇，持续发现。</strong><p>下一个好点子，<br />也许就藏在某个开源项目里。</p><button onClick={() => setGuide(true)}>了解数据来源 <ArrowUpRight size={14} /></button><div className="sidebar-footer"><Github size={14} /> Powered by GitHub API</div></div>
-    </aside>
-    <div className="main-shell">
-      <header className="topbar"><div className="breadcrumb"><Compass size={17} /><span>探索开源</span><ChevronRight size={13} /><strong>{nav.find(n => n.id === view)?.name}</strong></div><div className="topbar-right"><span className="live-tag"><i /> 计划每小时更新</span><button className="icon-button info-top" aria-label="数据说明" onClick={() => setGuide(true)}><Info size={18} /></button></div></header>
-      <main>
-        <div className="mobile-brand"><Radio size={21} /> GitHub Radar</div><div className="mobile-nav">{nav.map(n => <button key={n.id} className={view === n.id ? "active" : ""} onClick={() => chooseView(n.id)}>{n.name}</button>)}</div>
-        <section className="page-heading"><div><div className="eyebrow"><span /> YOUR OPEN SOURCE DISCOVERY</div><h1>{view === "saved" ? "把好技术，留在视野里。" : view === "new" ? "新想法，正在成为新项目。" : "看见技术的下一站。"}</h1><p>{view === "saved" ? "收藏值得继续了解的项目，慢慢形成自己的技术判断。" : "大家在做什么，什么值得了解。在这里，跟上开源世界的变化。"}</p></div><button className="button refresh-button" aria-label="检查更新" onClick={() => void load(true)} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} />{loading ? "正在同步" : "检查更新"}</button></section>
-        <div className="sync-line"><span><i className={error || data?.stale ? "dot amber" : "dot"} />{loading ? "正在读取最新采集数据…" : data ? `上次同步 ${dateText(data.syncedAt)} · 计划每小时采集` : "等待同步"}</span><span>真实数据 · 独立发现</span></div>
-        {(error || data?.notice || storageError) && <div className="notice" role="status"><Info size={16} /><span>{error || data?.notice || storageError}{data?.retryAt ? ` 下次可尝试：${dateText(data.retryAt)}` : ""}</span><button onClick={() => void load()} disabled={loading}>重试</button></div>}
-        {data?.incomplete && <div className="notice" role="status"><Info size={16} />GitHub 标记本次搜索结果可能不完整，以下为已返回的样本。</div>}
-        {hint && <div className="toast" role="status"><Check size={16} />{hint}</div>}
-        {view !== "saved" && <>
-          <section className="stat-grid" aria-label="样本概况">{[{ label: "本期观察项目", value: data ? String(repos.length) : "—", detail: "合并去重 · 过滤下载推广", icon: Layers3 }, { label: `近 ${days} 天新项目`, value: data ? String(fresh) : "—", detail: "按累计 Star 选取前 100", icon: Sparkles }, { label: "覆盖技术方向", value: data ? String(directionStats.filter(d => d.count).length).padStart(2, "0") : "—", detail: "基于主题与简介自动归类", icon: Compass }, { label: "样本最多的语言", value: languages[0]?.[0] || "—", detail: languages[0] ? `${languages[0][1]} 个项目采用` : "同步后生成统计", icon: Code2 }].map((s, i) => <div className="stat" key={s.label}><div className="stat-label">{s.label}<s.icon size={16} /></div><strong className={i === 3 ? "language-stat" : ""}>{s.value}<span>{i < 2 ? "个" : i === 2 ? "类" : ""}</span></strong><small>{s.detail}</small></div>)}</section>
-          <section className="discovery-grid">
-            <div className="insight-card"><div className="insight-heading"><span><Sparkles size={14} /> 本期方向观察</span><span className="edition">RADAR / {String(days).padStart(2, "0")}</span></div><h2>{data ? <>从 <em>{top.name}</em><br />开始你的探索。</> : <>开源世界，<br />今天有什么新鲜事？</>}</h2><p>{data ? `${repos.length} 个观察样本中，${top.count} 个归入此方向。${top.description}` : "正在汇集新项目和活跃项目，帮你找到下一项值得了解的技术。"}</p><button disabled={!data} onClick={() => { setDirection(top.id); setView("overview"); document.getElementById("projects")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>看看相关项目 <ArrowRight size={16} /></button><div className="radar-art" aria-hidden="true"><div /><div /><div /><span /><i /><b /></div><div className="insight-foot">基于当前样本 · 方向归类仅供探索</div></div>
-            <div className="direction-card"><div className="section-top"><div><h2>大家在关注哪些方向？</h2><p>当前样本 · 项目数前 5 的方向</p></div><span className="subtle-label">TECH LANDSCAPE</span></div><div className="bar-chart">{directionStats.filter(d => d.count > 0).slice(0, 5).map(d => <button className={`chart-column ${direction === d.id ? "selected" : ""}`} key={d.id} onClick={() => { setDirection(direction === d.id ? "all" : d.id); setView("overview"); }} title={`${d.name}：${d.count} 个项目`}><span className="bar-value">{d.count}</span><span className="bar-track"><span style={{ height: `${Math.max(8, d.count / (top.count || 1) * 100)}%`, background: d.color }} /></span><span className="bar-name">{d.name.replace("与", " / ")}</span></button>)}{!data && <div className="chart-placeholder"><Radio size={31} className={loading ? "pulse" : ""} /><p>{loading ? "正在绘制本期技术地图" : "同步后生成技术地图"}</p></div>}</div><div className="chart-foot"><span><i /> 点击方向筛选项目</span><button onClick={() => setGuide(true)}>统计口径 <Info size={12} /></button></div></div>
-          </section>
-        </>}
-        <section className="content-grid" id="projects"><div className="projects-panel">
-          <div className="projects-heading"><div><h2>{view === "saved" ? "我的观察清单" : view === "new" ? "近期诞生，值得发现" : "值得打开的项目"}<span>{filtered.length}</span></h2><p>{view === "saved" ? "清单保存在当前浏览器；同步样本中的项目会更新数据。" : view === "new" ? `近 ${days} 天创建的项目，按累计 Star 排序发现。` : "发现新项目，也看看近 7 天有提交的热门项目。"}</p></div>{view !== "saved" && <label className="period-select"><span className="sr-only">新项目创建时间范围</span><select aria-label="新项目创建时间范围" value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select></label>}</div>
-          <div className="filters"><label className="search-field"><Search size={16} /><input aria-label="搜索项目、技术或主题" placeholder="搜索项目、技术或主题…" value={query} onChange={e => setQuery(e.target.value)} />{query && <button aria-label="清空搜索" onClick={() => setQuery("")}><X size={13} /></button>}</label><select aria-label="技术语言" value={language} onChange={e => setLanguage(e.target.value)}><option value="all">所有语言</option>{[...new Set([...languages.map(l => l[0]), ...(view === "saved" ? Object.values(saved).map(r => r.language).filter(Boolean) as string[] : [])])].map(l => <option key={l}>{l}</option>)}</select><select aria-label="项目排序" value={sort} onChange={e => setSort(e.target.value)}><option value="discover">优先看新项目</option><option value="stars">Star 最多</option><option value="created">最新创建</option><option value="updated">最近提交</option></select></div>
-          <div className="topic-chips"><button className={direction === "all" ? "active" : ""} onClick={() => setDirection("all")}>全部方向</button>{DIRECTIONS.map(d => <button className={direction === d.id ? "active" : ""} key={d.id} onClick={() => setDirection(d.id)}>{d.name}</button>)}</div>
-          <div className="list-header"><span>项目 / 项目简介</span><span>累计 Star</span></div>
-          <div aria-live="polite" aria-busy={loading}>{loading && !data && view !== "saved" ? <div className="empty-state"><LoaderCircle className="spin" size={28} /><h3>正在扫描开源世界</h3><p>正在读取最近一次采集结果。</p></div> : filtered.length === 0 ? <div className="empty-state">{view === "saved" ? <Bookmark size={30} /> : <Search size={30} />}<h3>{empty && view !== "saved" ? "暂时无法读取最新数据" : view === "saved" && !Object.keys(saved).length ? "留住让你眼前一亮的项目" : "没有找到匹配的项目"}</h3><p>{empty && view !== "saved" ? "检查网络后重试，真实数据会在同步后显示。" : view === "saved" && !Object.keys(saved).length ? "点击项目右侧的书签，下次可以继续了解。" : "换一个关键词，或清除筛选条件试试。"}</p><button className="button" onClick={() => { if (empty && view !== "saved") void load(); else chooseView("overview"); }}>{empty && view !== "saved" ? "重新同步" : "探索全部项目"}<ArrowRight size={14} /></button></div> : filtered.slice(0, limit).map((r, i) => <article className="repo-row" key={r.id}><span className="repo-rank">{String(i + 1).padStart(2, "0")}</span><div className="repo-main"><div className="repo-title"><button onClick={() => setSelected(r)}>{r.owner}<span> / </span><strong>{r.name}</strong></button>{r.isNew && <span className="new-badge">NEW</span>}</div><p className="repo-description">{r.description}</p><div className="repo-meta"><span className="repo-language"><i style={{ background: colors[r.language || ""] || "#a5a196" }} />{r.language || "未标注语言"}</span><span className="category-label">{DIRECTIONS.find(d => d.id === r.direction)?.name}</span><span className="repo-time">{ago(r.pushedAt)}</span>{r.license && <span className="repo-license">{r.license}</span>}</div></div><div className="repo-actions"><span className="star-count" title={`${r.stars.toLocaleString()} 累计 Star`}><Star size={14} />{fmt(r.stars)}</span><div><button className={`save-button ${saved[r.id] ? "saved" : ""}`} onClick={() => toggleSaved(r)} aria-label={`${saved[r.id] ? "取消收藏" : "收藏"} ${r.fullName}`} title={saved[r.id] ? "从观察清单移除" : "加入观察清单"}><Bookmark size={17} fill={saved[r.id] ? "currentColor" : "none"} /></button><a href={r.url} target="_blank" rel="noopener noreferrer" className="external-button" aria-label={`在 GitHub 打开 ${r.fullName}`}><ArrowUpRight size={17} /></a></div></div></article>)}</div>
-          {filtered.length > limit && <button className="load-more" onClick={() => setLimit(limit + 12)}>再发现 {Math.min(12, filtered.length - limit)} 个项目 <ArrowDown size={14} /></button>}
-          <div className="list-footer"><span>Star 为累计收藏数，不能直接代表近期增速。</span><Github size={14} /></div>
-        </div><aside className="right-column">
-          <section className="language-card"><div className="section-top"><div><h2>技术语言分布</h2><p>当前观察样本 · 按项目数</p></div><Code2 size={18} /></div><div className="language-stack">{languages.slice(0, 6).map(([l, n]) => <span key={l} style={{ flex: n, background: colors[l] || "#aaa69e" }} title={`${l}：${n} 个项目`} />)}{languages.length > 6 && <span style={{ flex: languages.slice(6).reduce((n, item) => n + item[1], 0), background: "#dddcd3" }} title="其他语言" />}</div><div className="language-list">{languages.slice(0, 6).map(([l, n]) => <button key={l} className={language === l ? "chosen" : ""} onClick={() => setLanguage(language === l ? "all" : l)}><i style={{ background: colors[l] || "#aaa69e" }} /><span>{l}</span><b>{n}</b><small>{Math.round(n / Math.max(1, repos.filter(r => r.language).length) * 100)}%</small></button>)}{!languages.length && <p className="muted">同步后显示语言统计</p>}</div><div className="language-foot">比例以已标注主语言的项目为分母</div></section>
-          <section className="reading-card"><span className="reading-icon"><Telescope size={21} /></span><div className="eyebrow">A LITTLE EXPLORATION</div><h2>不只看热度，<br />也看看它能做什么。</h2><p>打开项目详情，先读作者简介，再查看 README 中的示例和使用方式。</p><button onClick={() => setGuide(true)}>如何阅读这份雷达 <ArrowUpRight size={14} /></button></section><div className="small-note"><Info size={15} /><p>这是 GitHub 的一个观察窗口。项目样本、自动归类和累计 Star 都有局限，适合发现线索。</p></div>
-        </aside></section>
-        <footer className="page-footer"><span><Radio size={14} /> GitHub Radar <i>/</i> 给好奇心一个方向</span><button onClick={() => setGuide(true)}>数据与方法 <ArrowUpRight size={12} /></button></footer>
-      </main>
-    </div>
-    <dialog ref={dialog} className="detail-dialog" onCancel={closeDialog} onClose={() => { setSelected(null); setGuide(false); }} onClick={e => { if (e.target === dialog.current) closeDialog(); }}><div className="dialog-inner"><button className="dialog-close icon-button" aria-label="关闭详情" onClick={closeDialog}><X size={20} /></button>{selected ? <><div className="dialog-eyebrow"><Github size={17} /> 项目观察</div><div className="dialog-owner">{selected.owner} /</div><h2>{selected.name}</h2><p className="detail-description">{selected.description}</p><div className="detail-metrics"><span><Star size={16} /><b>{selected.stars.toLocaleString()}</b> 累计 Star</span><span><GitFork size={16} /><b>{selected.forks.toLocaleString()}</b> Fork</span></div><div className="detail-insight"><div><Sparkles size={17} /><strong>从什么方向了解它？</strong></div><h3>{DIRECTIONS.find(d => d.id === selected.direction)?.name}</h3><p>{DIRECTIONS.find(d => d.id === selected.direction)?.use}</p><small>这是方向解读，项目的实际能力以作者文档为准。</small></div><dl className="detail-facts"><div><dt>主要语言</dt><dd>{selected.language || "未标注"}</dd></div><div><dt>许可证</dt><dd>{selected.license || "未识别，请查看仓库 LICENSE"}</dd></div><div><dt>创建时间</dt><dd>{new Date(selected.createdAt).toLocaleDateString("zh-CN")}</dd></div><div><dt>最近提交</dt><dd>{dateText(selected.pushedAt)}</dd></div>{selected.delta !== null && data?.comparedAt && data.repos.some(r => r.id === selected.id) && <div><dt>较上次同步 Star 变化</dt><dd>{selected.delta > 0 ? "+" : ""}{selected.delta}<small>自 {dateText(data.comparedAt)}</small></dd></div>}</dl><div className="detail-topics">{selected.topics.slice(0, 12).map(t => <span key={t}>{t}</span>)}</div><div className="dialog-buttons"><a className="button primary" href={selected.url} target="_blank" rel="noopener noreferrer">去 GitHub 看 README <ArrowUpRight size={16} /></a><button className="button" onClick={() => toggleSaved(selected)}><Bookmark size={16} fill={saved[selected.id] ? "currentColor" : "none"} />{saved[selected.id] ? "已加入观察" : "加入观察清单"}</button></div><p className="detail-footnote">{data?.repos.some(r => r.id === selected.id) ? `数据采集于 ${dateText(data.syncedAt)}` : "这是收藏时的快照，本期样本未覆盖该项目。"}</p></> : <><div className="dialog-eyebrow"><Radio size={18} /> ABOUT THIS RADAR</div><h2>给好奇心，<br />一张真实的技术地图。</h2><p className="detail-description">帮助你发现新项目、新技术和可继续研究的方向。这里展示的是公开仓库的有限样本，不是 GitHub 官方 Trending 榜单。</p><div className="guide-section"><h3>01 / 我们看什么</h3><p>新项目：近 7、30 或 90 天创建，至少 20 Star，按累计 Star 取前 100 个。活跃热门：近 7 天有提交、至少 500 Star，按累计 Star 取前 100 个。排除 Fork 和已归档仓库，合并去重后展示。同时按有限规则隐藏名称或简介中同时出现特定商业软件名与下载推广用语的项目，可能存在漏判或误判。</p></div><div className="guide-section"><h3>02 / 如何解读热度</h3><p>方向与语言图表表示样本中的项目数量，不代表全站市场份额，也不表示正在增长。方向按仓库主题、名称和简介进行规则归类，每个项目归入一类，可能存在偏差。Star 为累计收藏数；收集到下一次数据后，详情页才显示两次同步之间的实际 Star 差值。</p></div><div className="guide-section"><h3>03 / 自动同步与收藏</h3><p>GitHub Actions 计划每小时采集一次，即使关闭网页也会更新；GitHub 调度可能延迟，页面显示实际采集时间。打开页面时读取最近一次结果，打开期间每小时检查一次，“检查更新”只读取已发布的数据。采集失败时保留旧数据，超过 3 小时会提示。观察清单保存在当前浏览器，清除浏览器数据会移除清单。</p></div><div className="guide-section"><h3>04 / 从发现到判断</h3><p>先看它解决什么问题，再读 README、示例、许可证和维护情况。受欢迎是值得打开的线索，是否适合你的应用还需要结合自己的需求。</p></div><div className="source-links"><a href="https://docs.github.com/en/rest/search/search#search-repositories" target="_blank" rel="noopener noreferrer">GitHub 官方 API 文档 <ExternalLink size={13} /></a>{data && <><a href={data.sources.new} target="_blank" rel="noopener noreferrer">查看新项目查询 <ExternalLink size={13} /></a><a href={data.sources.active} target="_blank" rel="noopener noreferrer">查看活跃项目查询 <ExternalLink size={13} /></a></>}</div></>}</div></dialog>
+
+  return <div className="site-shell">
+    <a className="skip-link" href="#projects">跳到项目探索</a>
+    <header className="site-header">
+      <div className="header-inner">
+        <a className="brand" href={import.meta.env.BASE_URL} aria-label="GitHub Radar 首页"><span className="brand-symbol"><Radio size={23} /></span><span className="brand-wordmark">GITHUB <b>RADAR</b><small>开 源 技 术 雷 达</small></span></a>
+        <nav id="main-navigation" className={`main-navigation ${menuOpen ? 'is-open' : ''}`} aria-label="主导航">
+          <button className={view === 'overview' ? 'active' : ''} onClick={() => chooseView('overview', 'top')}>发现概览</button>
+          <button onClick={() => chooseView('overview', 'directions')}>技术方向</button>
+          <button className={view === 'new' ? 'active' : ''} onClick={() => chooseView('new')}>新项目雷达</button>
+          <button className={view === 'saved' ? 'active' : ''} onClick={() => chooseView('saved')}>观察清单{Object.keys(saved).length > 0 && <span className="nav-count">{Object.keys(saved).length}</span>}</button>
+        </nav>
+        <div className="header-actions">
+          <button className="header-search icon-button" aria-label="搜索项目" onClick={() => { scrollTo('projects'); searchInput.current?.focus({ preventScroll: true }); }}><Search size={19} /></button>
+          <button className="button primary header-explore" onClick={() => chooseView('overview')}>探索项目 <ArrowUpRight size={17} /></button>
+          <button className="menu-toggle icon-button" aria-label={menuOpen ? '关闭导航' : '打开导航'} aria-expanded={menuOpen} aria-controls="main-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={23} /> : <Menu size={23} />}</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section className="hero" id="top">
+        <div className="hero-grid" />
+        <div className="section-container hero-layout">
+          <div className="hero-copy">
+            <div className="eyebrow hero-eyebrow"><span /> OPEN SOURCE / NEW POSSIBILITIES</div>
+            <h1>看见开源动向<br /><em>发现技术的下一站</em></h1>
+            <p>从 GitHub 的公开项目中，发现新技术、<br className="desktop-break" />开发工具与值得继续研究的方向。</p>
+            <div className="hero-actions"><button className="button primary" onClick={() => chooseView('overview')}>开始探索 <ArrowUpRight size={19} /></button><button className="text-button" onClick={() => setGuide(true)}>了解这份雷达 <ArrowRight size={17} /></button></div>
+            <div className="hero-source"><span className={`status-dot ${error || data?.stale ? 'amber' : ''}`} />{loading ? '正在读取公开项目数据' : data ? `最近采集 ${dateText(data.syncedAt)} · 计划每小时更新` : '等待数据同步'}<button aria-label="数据来源与统计说明" onClick={() => setGuide(true)}><Info size={14} /></button></div>
+          </div>
+          <div className="hero-visual"><div className="scene-topline"><span>GITHUB RADAR</span><span>VOL. {String(days).padStart(2, '0')}D</span></div><RadarScene /><div className="scene-bottomline"><span>PUBLIC REPOSITORY SIGNALS</span><span>{data ? repos.length : '—'} REPOS <i /></span></div></div>
+        </div>
+        <a className="scroll-cue" href="#directions" aria-label="向下探索技术方向"><ArrowDown size={16} /></a>
+      </section>
+
+      <section className="sample-strip" aria-label="当前样本概况"><div className="section-container sample-grid">
+        {[{ value: data ? repos.length : '—', unit: '个', label: '本期观察项目', detail: '合并去重的公开仓库' }, { value: data ? fresh : '—', unit: '个', label: `近 ${days} 天新项目`, detail: '按累计 Star 发现' }, { value: data ? directionStats.filter(d => d.count).length : '—', unit: '类', label: '覆盖技术方向', detail: '基于主题与简介归类' }, { value: languages[0]?.[0] || '—', unit: '', label: '样本最多的语言', detail: languages[0] ? `${languages[0][1]} 个项目采用` : '采集后生成统计' }].map(stat => <div className="sample-stat" key={stat.label}><div><strong>{stat.value}</strong><span>{stat.unit}</span></div><h2>{stat.label}</h2><p>{stat.detail}</p></div>)}
+      </div></section>
+
+      <section className="directions-section" id="directions">
+        <div className="section-container">
+          <div className="section-heading centered"><div className="eyebrow">EXPLORE THE LANDSCAPE</div><h2>每一个方向，<span>都可能是新的开始。</span></h2><p>从你关心的领域出发，看见开发者正在创造什么。</p></div>
+          <div className="direction-grid">{directionStats.map((d, index) => <button className={`direction-tile ${direction === d.id ? 'selected' : ''}`} key={d.id} onClick={() => chooseDirection(d.id)} aria-pressed={direction === d.id}>
+            <div className="direction-top"><d.icon size={27} strokeWidth={1.4} /><span>0{index + 1} / {d.short}</span><ArrowUpRight className="direction-arrow" size={21} /></div>
+            <h3>{d.name}</h3><p>{d.description}</p>
+            <div className="direction-bottom"><span className="direction-meter"><span style={{ width: `${d.count / Math.max(1, repos.length) * 100}%` }} /></span><strong>{data ? d.count : '—'}<small> 项目</small></strong></div>
+          </button>)}</div>
+          <div className="direction-note"><span>基于当前样本的项目数量 · 方向归类仅供探索</span><button onClick={() => setGuide(true)}>查看统计口径 <ArrowUpRight size={14} /></button></div>
+        </div>
+      </section>
+
+      <section className="explorer-section" aria-labelledby="explorer-title">
+        <div className="section-container">
+          <div className="explorer-heading"><div><div className="eyebrow">THE NEXT THING TO EXPLORE</div><h2 id="explorer-title">{view === 'saved' ? <>把好技术，<br /><span>留在视野里。</span></> : <>找到下一项<br /><span>值得了解的技术。</span></>}</h2><p>{view === 'saved' ? '收藏值得继续了解的项目，慢慢形成自己的技术判断。' : '新项目、新想法，以及持续活跃的开源力量。'}</p></div><button className="refresh-button button outline" onClick={() => void load(true)} disabled={loading} aria-label="检查更新"><RefreshCw size={16} className={loading ? 'spin' : ''} />{loading ? '正在读取' : '检查更新'}</button></div>
+
+          {(error || data?.notice || storageError) && <div className="notice" role="status"><Info size={17} /><span>{error || data?.notice || storageError}</span><button onClick={() => void load()} disabled={loading}>重试</button></div>}
+          {data?.incomplete && <div className="notice" role="status"><Info size={17} />GitHub 标记本次搜索结果可能不完整，以下为已返回的样本。</div>}
+
+          <div className="explorer-toolbar" id="projects" tabIndex={-1}><nav className="view-tabs" aria-label="项目视图">{(['overview', 'new', 'saved'] as View[]).map(v => <button key={v} className={view === v ? 'active' : ''} aria-pressed={view === v} onClick={() => chooseView(v)}>{v === 'saved' && <Bookmark size={15} />}{viewNames[v]}<span>{v === 'saved' ? Object.keys(saved).length : v === 'new' ? fresh : repos.length}</span></button>)}</nav>{view !== 'saved' && <select className="period-select" aria-label="新项目创建时间范围" value={days} onChange={event => setDays(Number(event.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select>}</div>
+          <div className="filters"><label className="search-field"><Search size={19} /><input ref={searchInput} aria-label="搜索项目、技术或主题" placeholder="搜索项目、技术或主题" value={query} onChange={event => setQuery(event.target.value)} />{query && <button aria-label="清空搜索" onClick={() => setQuery('')}><X size={17} /></button>}</label><select aria-label="技术语言" value={language} onChange={event => setLanguage(event.target.value)}><option value="all">所有语言</option>{languageOptions.map(l => <option key={l}>{l}</option>)}</select><select aria-label="项目排序" value={sort} onChange={event => setSort(event.target.value)}><option value="discover">优先看新项目</option><option value="stars">Star 最多</option><option value="created">最新创建</option><option value="updated">最近提交</option></select></div>
+          <div className="topic-chips" aria-label="筛选技术方向"><button className={direction === 'all' ? 'active' : ''} aria-pressed={direction === 'all'} onClick={() => setDirection('all')}>全部方向</button>{DIRECTIONS.map(d => <button className={direction === d.id ? 'active' : ''} aria-pressed={direction === d.id} key={d.id} onClick={() => setDirection(d.id)}>{d.name}</button>)}</div>
+          <div className="results-line"><p>发现 <strong>{filtered.length}</strong> 个{view === 'saved' ? '收藏' : '匹配'}项目</p><span>{view === 'new' ? `近 ${days} 天创建 · 累计 Star` : view === 'saved' ? '保存在当前浏览器' : `近 ${days} 天新项目 + 近 7 天活跃热门`}</span></div>
+
+          <div aria-live="polite" aria-busy={loading}>
+            {loading && !data && view !== 'saved' ? <div className="empty-state"><LoaderCircle className="spin" size={30} /><h3>正在扫描开源世界</h3><p>正在读取最近一次采集结果。</p></div> : filtered.length === 0 ? <div className="empty-state">{view === 'saved' ? <Bookmark size={32} /> : <Search size={32} />}<h3>{empty && view !== 'saved' ? '暂时无法读取最新数据' : view === 'saved' && !Object.keys(saved).length ? '留住让你眼前一亮的项目' : '没有找到匹配的项目'}</h3><p>{empty && view !== 'saved' ? '检查网络后重试，真实数据会在同步后显示。' : view === 'saved' && !Object.keys(saved).length ? '点击项目卡片上的书签，下次可以继续了解。' : '换一个关键词，或清除筛选条件试试。'}</p><button className="button primary" onClick={() => { if (empty && view !== 'saved') void load(); else chooseView('overview'); }}>{empty && view !== 'saved' ? '重新读取' : '探索全部项目'}<ArrowRight size={16} /></button></div> : <div className="project-grid">{filtered.slice(0, limit).map((r, index) => <article className="project-card" key={r.id}>
+              <div className="project-top"><span className="project-avatar"><GitBranch size={21} strokeWidth={1.6} /></span><span className="project-owner" title={r.owner}>{r.owner}</span>{r.isNew && <span className="new-badge">NEW</span>}<button className={`save-button icon-button ${saved[r.id] ? 'saved' : ''}`} onClick={() => toggleSaved(r)} aria-label={`${saved[r.id] ? '取消收藏' : '收藏'} ${r.fullName}`} title={saved[r.id] ? '从观察清单移除' : '加入观察清单'}><Bookmark size={19} fill={saved[r.id] ? 'currentColor' : 'none'} /></button></div>
+              <h3><button onClick={() => setSelected(r)}>{r.name}</button></h3><p className="repo-description">{r.description}</p>
+              <div className="repo-meta"><span className="repo-language"><i style={{ background: languageColors[r.language || ''] || '#84947e' }} />{r.language || '未标注语言'}</span><span>{DIRECTIONS.find(d => d.id === r.direction)?.name}</span></div>
+              <div className="project-footer"><span className="star-count" title={`${r.stars.toLocaleString()} 累计 Star`}><Star size={15} />{fmt(r.stars)}<small>累计 Star</small></span><button onClick={() => setSelected(r)} aria-label={`了解项目 ${r.fullName}`}>了解项目 <ArrowUpRight size={17} /></button></div>
+              <div className="project-underlay"><span>{String(index + 1).padStart(2, '0')}</span><span>{ago(r.pushedAt)}</span></div>
+            </article>)}</div>}
+          </div>
+          {filtered.length > limit && <div className="load-more-wrap"><button className="button outline load-more" onClick={() => setLimit(limit + 12)}>再发现 {Math.min(12, filtered.length - limit)} 个项目 <ArrowDown size={17} /></button><span>已展示 {Math.min(limit, filtered.length)} / {filtered.length}</span></div>}
+          <p className="sample-disclaimer"><Info size={14} />Star 为累计收藏数，不能直接代表近期增速。{view === 'saved' ? '本期未覆盖的收藏项目显示收藏时的快照。' : '统计来自有限样本，适合发现线索。'}</p>
+
+          <section className="language-panel" aria-label="样本语言分布"><div className="language-heading"><Code2 size={25} strokeWidth={1.5} /><h3>用什么语言，<br />创造新的可能？</h3><p>当前样本 · 按项目数统计</p></div><div className="language-grid">{languages.slice(0, 6).map(([name, count]) => <button key={name} className={language === name ? 'chosen' : ''} onClick={() => { setLanguage(language === name ? 'all' : name); scrollTo('projects'); }}><span className="language-name"><i style={{ background: languageColors[name] || '#84947e' }} />{name}<small>{count} 个</small></span><span className="language-bar"><span style={{ width: `${count / Math.max(1, languageTotal) * 100}%`, background: languageColors[name] || '#84947e' }} /></span><span className="language-percentage">{Math.round(count / Math.max(1, languageTotal) * 100)}%</span></button>)}{!languages.length && <p className="muted">读取数据后显示语言统计</p>}</div><p className="language-note">比例以已标注主语言的项目为分母</p></section>
+        </div>
+      </section>
+
+      <section className="reading-section"><div className="section-container reading-layout"><div><div className="eyebrow">FROM DISCOVERY TO UNDERSTANDING</div><h2>看见热度，<br /><span>也看懂它能做什么。</span></h2></div><div className="reading-copy"><p>先读作者简介，再看 README 中的示例、许可证和维护情况。把值得研究的项目留在观察清单里，让每一次发现，都成为自己的技术判断。</p><button className="button primary" onClick={() => setGuide(true)}>了解数据与方法 <ArrowUpRight size={18} /></button></div></div></section>
+    </main>
+
+    <footer className="site-footer"><div className="section-container"><div className="footer-main"><a className="brand" href={import.meta.env.BASE_URL}><span className="brand-symbol"><Radio size={23} /></span><span className="brand-wordmark">GITHUB <b>RADAR</b><small>开 源 技 术 雷 达</small></span></a><p>保持好奇，持续发现。</p><button className="text-button" onClick={() => scrollTo('top')}>回到顶部 <ArrowUpRight size={17} /></button></div><div className="footer-bottom"><span>GitHub Radar · 开源技术观察窗口</span><div><button onClick={() => setGuide(true)}>数据来源与方法</button><a href="https://github.com/Rongkangqi/github-tech-radar" target="_blank" rel="noopener noreferrer"><GitBranch size={14} /> 项目源码 <ArrowUpRight size={13} /></a></div></div></div></footer>
+    {hint && <div className="toast" role="status"><Check size={17} />{hint}</div>}
+    <ProjectDialog dialogRef={dialog} selected={selected} data={data} saved={saved} onClose={closeDialog} onToggle={toggleSaved} />
   </div>;
 }
-
-
