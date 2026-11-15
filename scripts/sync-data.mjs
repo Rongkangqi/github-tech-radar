@@ -24,7 +24,10 @@ export function combine(days, fresh, active, previous, now = Date.now()) {
     license: r.license?.spdx_id && r.license.spdx_id !== 'NOASSERTION' ? r.license.spdx_id : null,
     createdAt: r.created_at, pushedAt: r.pushed_at, direction: classify(r.name, r.description || '', r.topics || []),
     isNew: newIds.has(r.id), active: activeIds.has(r.id), delta: old.has(r.id) ? r.stargazers_count - old.get(r.id).stars : null,
-  })).filter(r => !isDownloadPromotion(r));
+  })).filter(r => !isDownloadPromotion(r)).map(repo => {
+    const prior = old.get(repo.id);
+    return prior?.description === repo.description ? { ...repo, descriptionLanguage: prior.descriptionLanguage, descriptionTranslations: prior.descriptionTranslations } : repo;
+  });
   return { version: 1, days, syncedAt: new Date(now).toISOString(), comparedAt: previous?.syncedAt || null, repos,
     totals: { new: fresh.total_count, active: active.total_count }, incomplete: !!(fresh.incomplete_results || active.incomplete_results),
     sources: { new: fresh.query, active: active.query } };

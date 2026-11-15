@@ -6,7 +6,7 @@ export const DIRECTIONS = [
   { id: "systems", name: "系统与安全", short: "Systems", color: "#ad92b8", description: "操作系统、网络、安全与底层工程。", use: "关注系统性能、网络通信、隐私和安全相关的技术。", pattern: /\b(kernel|linux|operating.system|security|secure|network|networking|privacy|encryption|rust|embedded|firmware|reverse.engineering)\b/i },
   { id: "other", name: "更多开源探索", short: "Explore", color: "#aaa69e", description: "学习资源、创意实验和其他开源项目。", use: "发现尚未归入主要技术方向的项目；资源列表也可能出现在这里。", pattern: /./ },
 ] as const;
-export type Repo = { id: number; name: string; owner: string; fullName: string; description: string; url: string; language: string | null; stars: number; forks: number; topics: string[]; license: string | null; createdAt: string; pushedAt: string; direction: string; isNew: boolean; active: boolean; delta: number | null };
+export type Repo = { id: number; name: string; owner: string; fullName: string; description: string; descriptionLanguage?: string; descriptionTranslations?: Partial<Record<'zh' | 'en', string>>; url: string; language: string | null; stars: number; forks: number; topics: string[]; license: string | null; createdAt: string; pushedAt: string; direction: string; isNew: boolean; active: boolean; delta: number | null };
 export type RadarData = { version: number; days: number; syncedAt: string; comparedAt: string | null; repos: Repo[]; totals: { new: number; active: number }; incomplete: boolean; stale?: boolean; notice?: string; retryAt?: string; sources: { new: string; active: string } };
 export function classify(name: string, description: string, topics: string[]) { return DIRECTIONS.find(d => d.pattern.test(topics.join(" ") + " " + name.split("/").pop() + " " + description))!.id; }
 export function isDownloadPromotion(repo: Pick<Repo, "name" | "description">) {

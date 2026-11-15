@@ -31,6 +31,13 @@ test('does not fabricate a growth value for the first collection', () => {
   assert.equal(data.repos[0].delta, null);
 });
 
+test('preserves translations only while the author description is unchanged', () => {
+  const item = repo(1, 'tool');
+  const previous = { syncedAt: '2026-11-12T00:00:00Z', repos: [{ id: 1, stars: 50, description: item.description, descriptionLanguage: 'en', descriptionTranslations: { zh: '终端工具' } }] };
+  assert.equal(combine(30, result([item]), result([]), previous).repos[0].descriptionTranslations.zh, '终端工具');
+  assert.equal(combine(30, result([{ ...item, description: 'A different tool' }]), result([]), previous).repos[0].descriptionTranslations, undefined);
+});
+
 test('filters commercial download promotions and reports an unrecognized license honestly', () => {
   const unknown = { ...repo(2, 'tool'), license: { spdx_id: 'NOASSERTION' } };
   const data = combine(7, result([repo(1, 'Photoshop-full-version-download'), unknown]), result([]), null);

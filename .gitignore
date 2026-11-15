@@ -1,4 +1,7 @@
 /node_modules/
+/.translation-venv/
+/.cache/
+__pycache__/
 /dist/
 /outputs/
 .env*

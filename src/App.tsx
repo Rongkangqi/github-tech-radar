@@ -3,6 +3,8 @@ import { ArrowDown, ArrowRight, ArrowUpRight, Bookmark, Check, Code2, Cpu, Datab
 import { DIRECTIONS, fmt, type RadarData, type Repo } from '../lib/radar';
 import RadarScene from './components/RadarScene';
 import ProjectDialog from './components/ProjectDialog';
+import RepoDescription, { DescriptionLanguage } from './components/RepoDescription';
+import { readingLanguages, searchableDescription, type ReadingLanguage } from '../lib/descriptions';
 
 type View = 'overview' | 'new' | 'saved';
 const languageColors: Record<string, string> = { Python: '#c49b32', TypeScript: '#3178c6', JavaScript: '#c2a900', Rust: '#b46d48', Go: '#27a6b7', Java: '#ad7544', 'C++': '#886ab5', C: '#6d79a1', Shell: '#6a8d49', Swift: '#db7351' };
@@ -12,6 +14,11 @@ const dateText = (value: string) => new Date(value).toLocaleString('zh-CN', { mo
 function ago(value: string) { const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000)); return days === 0 ? '今天有提交' : `${days} 天前提交`; }
 
 export default function App() {
+  const [readingLanguage, setReadingLanguage] = useState<ReadingLanguage>(() => {
+    try { const stored = localStorage.getItem('github-radar-reading-language-v1'); if (readingLanguages.some(option => option.value === stored)) return stored as ReadingLanguage; } catch { /* Reading remains available when storage is disabled. */ }
+    return 'zh';
+  });
+  useEffect(() => { try { localStorage.setItem('github-radar-reading-language-v1', readingLanguage); } catch { /* Keep the preference for this visit. */ } }, [readingLanguage]);
   const [data, setData] = useState<RadarData | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [days, setDays] = useState(30), [view, setView] = useState<View>('overview');
@@ -64,7 +71,7 @@ export default function App() {
     const current = new Map((data?.repos || []).map(r => [r.id, r]));
     let list = view === 'saved' ? Object.values(saved).map(r => current.get(r.id) || r) : (data?.repos || []).filter(r => view !== 'new' || r.isNew);
     const q = query.trim().toLowerCase();
-    list = list.filter(r => (direction === 'all' || r.direction === direction) && (language === 'all' || r.language === language) && (!q || `${r.fullName} ${r.description} ${r.topics.join(' ')} ${DIRECTIONS.find(d => d.id === r.direction)?.name}`.toLowerCase().includes(q)));
+    list = list.filter(r => (direction === 'all' || r.direction === direction) && (language === 'all' || r.language === language) && (!q || `${r.fullName} ${searchableDescription(r)} ${r.topics.join(' ')} ${DIRECTIONS.find(d => d.id === r.direction)?.name}`.toLowerCase().includes(q)));
     return list.sort((a, b) => sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : sort === 'updated' ? b.pushedAt.localeCompare(a.pushedAt) : sort === 'discover' ? Number(b.isNew) - Number(a.isNew) || b.stars - a.stars : b.stars - a.stars);
   }, [data, saved, view, query, direction, language, sort]);
   const languageOptions = [...new Set([...languages.map(l => l[0]), ...(view === 'saved' ? Object.values(saved).map(r => r.language).filter((l): l is string => !!l) : [])])];
@@ -137,12 +144,13 @@ export default function App() {
           <div className="explorer-toolbar" id="projects" tabIndex={-1}><nav className="view-tabs" aria-label="项目视图">{(['overview', 'new', 'saved'] as View[]).map(v => <button key={v} className={view === v ? 'active' : ''} aria-pressed={view === v} onClick={() => chooseView(v)}>{v === 'saved' && <Bookmark size={15} />}{viewNames[v]}<span>{v === 'saved' ? Object.keys(saved).length : v === 'new' ? fresh : repos.length}</span></button>)}</nav>{view !== 'saved' && <select className="period-select" aria-label="新项目创建时间范围" value={days} onChange={event => setDays(Number(event.target.value))}><option value={7}>近 7 天</option><option value={30}>近 30 天</option><option value={90}>近 90 天</option></select>}</div>
           <div className="filters"><label className="search-field"><Search size={19} /><input ref={searchInput} aria-label="搜索项目、技术或主题" placeholder="搜索项目、技术或主题" value={query} onChange={event => setQuery(event.target.value)} />{query && <button aria-label="清空搜索" onClick={() => setQuery('')}><X size={17} /></button>}</label><select aria-label="技术语言" value={language} onChange={event => setLanguage(event.target.value)}><option value="all">所有语言</option>{languageOptions.map(l => <option key={l}>{l}</option>)}</select><select aria-label="项目排序" value={sort} onChange={event => setSort(event.target.value)}><option value="discover">优先看新项目</option><option value="stars">Star 最多</option><option value="created">最新创建</option><option value="updated">最近提交</option></select></div>
           <div className="topic-chips" aria-label="筛选技术方向"><button className={direction === 'all' ? 'active' : ''} aria-pressed={direction === 'all'} onClick={() => setDirection('all')}>全部方向</button>{DIRECTIONS.map(d => <button className={direction === d.id ? 'active' : ''} aria-pressed={direction === d.id} key={d.id} onClick={() => setDirection(d.id)}>{d.name}</button>)}</div>
+          <div className="reading-controls"><DescriptionLanguage value={readingLanguage} onChange={setReadingLanguage} /><p>自动识别简介语言 · 译文仅供参考，可随时对照原文</p></div>
           <div className="results-line"><p>发现 <strong>{filtered.length}</strong> 个{view === 'saved' ? '收藏' : '匹配'}项目</p><span>{view === 'new' ? `近 ${days} 天创建 · 累计 Star` : view === 'saved' ? '保存在当前浏览器' : `近 ${days} 天新项目 + 近 7 天活跃热门`}</span></div>
 
           <div aria-live="polite" aria-busy={loading}>
             {loading && !data && view !== 'saved' ? <div className="empty-state"><LoaderCircle className="spin" size={30} /><h3>正在扫描开源世界</h3><p>正在读取最近一次采集结果。</p></div> : filtered.length === 0 ? <div className="empty-state">{view === 'saved' ? <Bookmark size={32} /> : <Search size={32} />}<h3>{empty && view !== 'saved' ? '暂时无法读取最新数据' : view === 'saved' && !Object.keys(saved).length ? '留住让你眼前一亮的项目' : '没有找到匹配的项目'}</h3><p>{empty && view !== 'saved' ? '检查网络后重试，真实数据会在同步后显示。' : view === 'saved' && !Object.keys(saved).length ? '点击项目卡片上的书签，下次可以继续了解。' : '换一个关键词，或清除筛选条件试试。'}</p><button className="button primary" onClick={() => { if (empty && view !== 'saved') void load(); else chooseView('overview'); }}>{empty && view !== 'saved' ? '重新读取' : '探索全部项目'}<ArrowRight size={16} /></button></div> : <div className="project-grid">{filtered.slice(0, limit).map((r, index) => <article className="project-card" key={r.id}>
               <div className="project-top"><span className="project-avatar"><GitBranch size={21} strokeWidth={1.6} /></span><span className="project-owner" title={r.owner}>{r.owner}</span>{r.isNew && <span className="new-badge">NEW</span>}<button className={`save-button icon-button ${saved[r.id] ? 'saved' : ''}`} onClick={() => toggleSaved(r)} aria-label={`${saved[r.id] ? '取消收藏' : '收藏'} ${r.fullName}`} title={saved[r.id] ? '从观察清单移除' : '加入观察清单'}><Bookmark size={19} fill={saved[r.id] ? 'currentColor' : 'none'} /></button></div>
-              <h3><button onClick={() => setSelected(r)}>{r.name}</button></h3><p className="repo-description">{r.description}</p>
+              <h3><button onClick={() => setSelected(r)}>{r.name}</button></h3><RepoDescription key={`${r.id}-${r.description}-${readingLanguage}`} repo={r} language={readingLanguage} />
               <div className="repo-meta"><span className="repo-language"><i style={{ background: languageColors[r.language || ''] || '#84947e' }} />{r.language || '未标注语言'}</span><span>{DIRECTIONS.find(d => d.id === r.direction)?.name}</span></div>
               <div className="project-footer"><span className="star-count" title={`${r.stars.toLocaleString()} 累计 Star`}><Star size={15} />{fmt(r.stars)}<small>累计 Star</small></span><button onClick={() => setSelected(r)} aria-label={`了解项目 ${r.fullName}`}>了解项目 <ArrowUpRight size={17} /></button></div>
               <div className="project-underlay"><span>{String(index + 1).padStart(2, '0')}</span><span>{ago(r.pushedAt)}</span></div>
@@ -160,6 +168,6 @@ export default function App() {
 
     <footer className="site-footer"><div className="section-container"><div className="footer-main"><a className="brand" href={import.meta.env.BASE_URL}><span className="brand-symbol"><Radio size={23} /></span><span className="brand-wordmark">GITHUB <b>RADAR</b><small>开 源 技 术 雷 达</small></span></a><p>保持好奇，持续发现。</p><button className="text-button" onClick={() => scrollTo('top')}>回到顶部 <ArrowUpRight size={17} /></button></div><div className="footer-bottom"><span>GitHub Radar · 开源技术观察窗口</span><div><button onClick={() => setGuide(true)}>数据来源与方法</button><a href="https://github.com/Rongkangqi/github-tech-radar" target="_blank" rel="noopener noreferrer"><GitBranch size={14} /> 项目源码 <ArrowUpRight size={13} /></a></div></div></div></footer>
     {hint && <div className="toast" role="status"><Check size={17} />{hint}</div>}
-    <ProjectDialog dialogRef={dialog} selected={selected} data={data} saved={saved} onClose={closeDialog} onToggle={toggleSaved} />
+    <ProjectDialog dialogRef={dialog} selected={selected} data={data} saved={saved} onClose={closeDialog} onToggle={toggleSaved} readingLanguage={readingLanguage} onReadingLanguageChange={setReadingLanguage} />
   </div>;
 }

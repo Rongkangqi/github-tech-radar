@@ -1,6 +1,6 @@
 # GitHub Radar · 开源技术雷达
 
-中文网页，帮助发现 GitHub 新项目、新技术和值得继续研究的方向。支持方向、语言、关键词筛选、项目详情和浏览器本地收藏。
+中文网页，帮助发现 GitHub 新项目、新技术和值得继续研究的方向。支持方向、编程语言、关键词筛选、项目详情和浏览器本地收藏。简介可切换中文、English 和作者原文。
 
 [在线打开 GitHub Radar](https://rongkangqi.github.io/github-tech-radar/)
 
@@ -18,6 +18,24 @@
 - 数据源为 [GitHub Repository Search API](https://docs.github.com/en/rest/search/search#search-repositories)，项目能力和许可证以原仓库为准。
 
 采集时间显示在页面上。单个范围采集失败时保留上次结果并标注；全部查询失败时工作流失败，保留上次成功发布的网站。超过 3 小时未更新，页面会提示。
+
+## 简介翻译
+
+项目列表和详情中的“简介语言”支持中文、English、作者原文，默认中文，并在当前浏览器记住选择。卡片可一键查看原文，详情可展开原文对照；搜索同时匹配原文和已生成的中英文译文。
+
+后台使用 [Argos Translate 的公开模型](https://github.com/argosopentech/argospm-index) 和 [CTranslate2](https://github.com/OpenNMT/CTranslate2) 在 GitHub Actions CPU 上运行翻译，不调用收费翻译 API，也不向浏览器分发模型或密钥。自动识别简介语言，非英语语言可通过英语转译。只处理新增或变更的简介，相同内容共用缓存。机器翻译和语言识别可能有误，尤其是短简介、混合语言和技术名词，请对照作者原文。
+
+模型缓存保存在 Actions cache，文本缓存保存在 `public/data/translations.json`。模型下载、翻译失败或达到单轮时间预算时保留原文和已有译文，页面标明“译文暂未生成”，下一轮继续尝试，不影响项目数据发布。收藏保存译文快照；旧收藏未覆盖在当前样本中时可能暂时只有原文。
+
+本地生成译文（仅需生成数据时安装 Python 依赖，普通浏览、构建不需要）：
+
+```sh
+python -m pip install -r scripts/translation-requirements.txt
+python scripts/translate-descriptions.py
+python -m unittest discover -s tests -p 'test_*.py'
+```
+
+模型来自 [Argos 官方索引](https://github.com/argosopentech/argospm-index)及[官方下载镜像](https://data.argosopentech.com/argospm/v1/)。模型包仅用于后台推理，不随网页发布；各模型包中的许可证和元数据保留在下载缓存中。
 
 ## 在 GitHub Pages 上部署
 
