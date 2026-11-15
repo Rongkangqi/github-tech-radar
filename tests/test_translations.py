@@ -28,6 +28,16 @@ class TranslationTests(unittest.TestCase):
         module.enrich([repo], entries, lambda text: "en", lambda *args: "新简介")
         self.assertEqual(repo["descriptionTranslations"]["zh"], "新简介")
 
+    def test_removes_model_space_markers_from_new_and_cached_translations(self):
+        source = "中文简介"
+        cache = {module.source_key(source): {"source": source, "sourceLanguage": "zh", "translations": {"en": "A▁local▁database"}}}
+        repo = {"description": source}
+        module.enrich([repo], cache, lambda text: "zh", lambda *_: self.fail("inference called"))
+        self.assertEqual(repo["descriptionTranslations"]["en"], "A local database")
+        fresh = {"description": "新的简介"}
+        module.enrich([fresh], {}, lambda text: "zh", lambda *_: "New▁description")
+        self.assertEqual(fresh["descriptionTranslations"]["en"], "New description")
+
     def test_failure_keeps_original_and_successful_other_target(self):
         def translate(text, source, target, cached):
             if target == "zh":

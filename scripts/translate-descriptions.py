@@ -51,6 +51,9 @@ def enrich(repos, entries, detect, translate, deadline=float("inf")):
             cached = {"source": source, "sourceLanguage": detect(source), "translations": {}}
         language = cached["sourceLanguage"]
         translations = cached["translations"]
+        # Older model packages may leave SentencePiece's visible space marker.
+        for target, text in list(translations.items()):
+            translations[target] = text.replace("▁", " ").strip()
         # Do English first so another source language can pivot through its cached English.
         for target in ("en", "zh"):
             if language == target or translations.get(target) or time.monotonic() >= deadline:
@@ -58,7 +61,7 @@ def enrich(repos, entries, detect, translate, deadline=float("inf")):
             try:
                 text = translate(source, language, target, translations)
                 if isinstance(text, str) and text.strip() and text.strip() != source.strip():
-                    translations[target] = text.strip()
+                    translations[target] = text.replace("▁", " ").strip()
             except Exception as error:
                 # The public text is not logged. Failures must not stop data publication.
                 failure = (language, target, type(error).__name__)
@@ -94,9 +97,10 @@ class OfflineTranslator:
         if len(re.findall(r"[\u3400-\u9fff]", cleaned)) >= 4:
             return "zh"
         words = re.findall(r"[a-z]+", cleaned.lower())
-        english = {"the", "a", "an", "for", "with", "your", "and", "to", "of", "in", "on", "is", "open", "source", "developer", "agent", "code", "tool", "app", "framework", "skills", "kernel", "desktop", "emulator", "editor", "inference", "engineering"}
+        english = {"the", "a", "an", "for", "with", "your", "and", "to", "of", "in", "on", "is", "open", "source", "developer", "agent", "code", "tool", "app", "framework", "skills", "kernel", "desktop", "emulator", "editor", "inference", "engineering", "chains", "rules", "research"}
         hits = sum(word in english for word in words)
-        if cleaned.isascii() and (hits >= 2 or (hits and len(words) <= 8)):
+        letters = "".join(re.findall(r"[^\W\d_]", cleaned, re.UNICODE))
+        if letters.isascii() and (hits >= 2 or (hits and len(words) <= 8)):
             return "en"
         return self.identifier.classify(cleaned)[0]
 
@@ -185,7 +189,7 @@ class OfflineTranslator:
                                         repetition_penalty=1.1, no_repeat_ngram_size=4)
         translated = []
         for result in results:
-            decoded = tokenizer.decode(result.hypotheses[0])
+            decoded = tokenizer.decode(result.hypotheses[0]).replace("▁", " ")
             if prefix and decoded.startswith(prefix):
                 decoded = decoded[len(prefix):]
             translated.append(decoded.strip())
@@ -204,7 +208,13 @@ def main():
     engine = OfflineTranslator()
     cache_path = DATA / "translations.json"
     cache = read_json(cache_path, {})
-    entries = cache.get("entries", {}) if cache.get("version") == 2 else {}
+    entries = cache.get("entries", {}) if cache.get("version") in (2, 3) else {}
+    if cache.get("version") == 2:
+        for entry in entries.values():
+            language = engine.detect(entry["source"])
+            if language != entry["sourceLanguage"]:
+                entry["sourceLanguage"] = language
+                entry["translations"] = {}
     snapshots = [(DATA / f"radar-{days}.json") for days in (7, 30, 90)]
     deadline = time.monotonic() + 480
     active = set()
@@ -216,11 +226,11 @@ def main():
         active.update(source_key(repo["description"]) for repo in snapshot["repos"])
         write_json(path, snapshot)
         # Save completed work even if a subsequent range or model fails.
-        write_json(cache_path, {"version": 2, "provider": PROVIDER, "entries": entries})
+        write_json(cache_path, {"version": 3, "provider": PROVIDER, "entries": entries})
     # Keep recent descriptions for ranges which have temporarily left the sample.
     retained = dict(list((k, v) for k, v in entries.items() if k not in active)[-1500:])
     retained.update({k: entries[k] for k in active})
-    write_json(cache_path, {"version": 2, "provider": PROVIDER, "entries": retained})
+    write_json(cache_path, {"version": 3, "provider": PROVIDER, "entries": retained})
     count = sum(bool(entries[k]["translations"]) for k in active)
     print(f"Descriptions: {len(active)} distinct, {count} with translated text.", flush=True)
 
